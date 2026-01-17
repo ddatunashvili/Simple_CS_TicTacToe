@@ -1,0 +1,68 @@
+﻿@model TicTacToeGame.Models.HomeLobbyViewModel
+
+@{
+    ViewData["Title"] = "Home";
+}
+
+<div class="row g-4">
+    <div class="col-12 col-lg-6">
+        <h2>Lobby</h2>
+        <p id="currentDisplayName" class="text-muted" hidden>
+            Playing as: <strong id="currentDisplayNameValue"></strong>
+        </p>
+
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Create new game</h5>
+                <form id="createGameForm" class="row g-2">
+                    <div class="col-12">
+                        <label for="friendlyNameInput" class="form-label">Game name</label>
+                        <input class="form-control" id="friendlyNameInput" name="FriendlyName" maxlength="50" placeholder="e.g. John's game" />
+                        <div class="text-danger" id="createGameError" hidden></div>
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary" id="createGameBtn" disabled>Create</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="alert alert-info mt-3" id="joinGameSuccess" hidden></div>
+    </div>
+
+    <div class="col-12 col-lg-6">
+        <h2>Games waiting for opponent</h2>
+
+        <div id="waitingGamesList" data-needs-display-name="true">
+        </div>
+    </div>
+</div>
+
+<div class="modal" tabindex="-1" id="displayNameModal" aria-labelledby="displayNameModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="displayNameModalLabel">Enter display name</h5>
+            </div>
+            <div class="modal-body">
+                <form id="displayNameForm">
+                    <div class="mb-3">
+                        <label for="displayNameInput" class="form-label">Display name</label>
+                        <input class="form-control" id="displayNameInput" maxlength="32" autocomplete="nickname" />
+                        <div class="form-text">This name is saved per browser tab (session storage).</div>
+                    </div>
+                    <div class="text-danger" id="displayNameError" hidden></div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" id="displayNameSaveBtn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        window.ticTacToeNeedsDisplayName = true;
+    </script>
+}

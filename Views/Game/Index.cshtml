@@ -1,0 +1,42 @@
+@model TicTacToeGame.Models.GameViewModel
+@{
+    ViewData["Title"] = $"Game - {Model.FriendlyName}";
+
+    string CellText(TicTacToeGame.Models.Cell c) => c == TicTacToeGame.Models.Cell.Empty ? "" : c.ToString();
+    string CellClass(TicTacToeGame.Models.Cell c) => c == TicTacToeGame.Models.Cell.X ? "text-primary" : (c == TicTacToeGame.Models.Cell.O ? "text-danger" : "");
+}
+
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+    <div>
+        <h2 class="mb-0">@Model.FriendlyName</h2>
+        <div class="text-muted">GameId: @Model.GameId</div>
+        <div class="text-muted">You are: <strong id="playerMarkDisplay">...</strong></div>
+    </div>
+    <div>
+        <a class="btn btn-outline-secondary" asp-controller="Home" asp-action="Index">Back to lobby</a>
+    </div>
+</div>
+
+<div class="alert alert-info" id="gameStatus">Loading...</div>
+
+<div class="d-inline-block" id="board" data-game-id="@Model.GameId">
+    <div class="d-grid" style="grid-template-columns: repeat(3, 90px); gap: 8px;">
+        @for (var i = 0; i < 9; i++)
+        {
+            <button type="button"
+                    class="btn btn-outline-dark fw-bold fs-3 js-cell @CellClass(Model.Game.State.Board[i])"
+                    style="width:90px; height:90px;"
+                    data-cell-index="@i">@CellText(Model.Game.State.Board[i])</button>
+        }
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        window.ticTacToeGame = {
+            gameId: '@Model.GameId',
+            hostPlayer: '@Model.Game.HostPlayer',
+            guestPlayer: '@(Model.Game.GuestPlayer ?? "")'
+        };
+    </script>
+}
