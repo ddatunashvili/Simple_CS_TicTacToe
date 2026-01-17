@@ -37,12 +37,16 @@ public sealed class TicTacToeHub : Hub
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        _onlinePlayers.Remove(Context.ConnectionId);
         await BroadcastLobbyAsync();
         await base.OnDisconnectedAsync(exception);
     }
 
-    public Task GetLobby() => BroadcastLobbyAsync();
+    public async Task GetLobby()
+    {
+        var games = _games.GetAllNonFinished();
+
+        await Clients.Caller.SendAsync("LobbyUpdated", new { waitingGames = games });
+    }
 
     public async Task CreateGame(string friendlyName)
     {
@@ -69,9 +73,11 @@ public sealed class TicTacToeHub : Hub
             throw new HubException(result.Error);
 
         var game = result.Value!;
+
         await Groups.AddToGroupAsync(Context.ConnectionId, GetGameGroup(gameId));
 
         await Clients.Caller.SendAsync("GameJoined", new { gameId = game.GameId, friendlyName = game.FriendlyName });
+
         await BroadcastLobbyAsync();
         await BroadcastGameAsync(gameId);
     }
@@ -106,6 +112,18 @@ public sealed class TicTacToeHub : Hub
         await BroadcastGameAsync(gameId);
     }
 
+    public async Task CancelGame(string gameId)
+    {
+        var displayName = GetDisplayNameOrThrow();
+
+        var result = _games.CancelGame(gameId, displayName);
+        if (result.IsFailure)
+            throw new HubException(result.Error);
+
+        await BroadcastLobbyAsync();
+        await BroadcastGameAsync(gameId);
+    }
+
     private string GetDisplayNameOrThrow()
     {
         if (Context.Items.TryGetValue(DisplayNameItemKey, out var v) && v is string s && !string.IsNullOrWhiteSpace(s))
@@ -117,17 +135,24 @@ public sealed class TicTacToeHub : Hub
     private Task BroadcastLobbyAsync()
     {
         var waiting = _games.GetWaitingForOpponent()
-            .Select(g => new { gameId = g.GameId, friendlyName = g.FriendlyName })
+            .Select(g => new
+            {
+                gameId = g.GameId,
+                friendlyName = g.FriendlyName,
+                hostPlayer = g.HostPlayer,
+                guestPlayer = g.GuestPlayer,
+                status = g.State.Status.ToString()
+            })
             .ToArray();
 
         return Clients.All.SendAsync("LobbyUpdated", new { waitingGames = waiting });
     }
 
-    private Task BroadcastGameAsync(string gameId)
+    private async Task BroadcastGameAsync(string gameId)
     {
         var result = _games.GetGame(gameId);
         if (result.IsFailure)
-            return Task.CompletedTask;
+            return;
 
         var game = result.Value!;
         var payload = new
@@ -139,7 +164,7 @@ public sealed class TicTacToeHub : Hub
             board = game.State.Board.Select(c => c.ToString()).ToArray()
         };
 
-        return Clients.Group(GetGameGroup(gameId)).SendAsync("GameUpdated", payload);
+        await Clients.Group(GetGameGroup(gameId)).SendAsync("GameUpdated", payload);
     }
 
     private static string GetGameGroup(string gameId) => $"game:{gameId}";

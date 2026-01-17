@@ -8,6 +8,9 @@ public interface IGames
     Result<Game> JoinGame(string gameId, string guestPlayer);
     Result<Game> GetGame(string gameId);
     Result<Game> MakeMove(string gameId, string player, int cellIndex);
-    IReadOnlyCollection<Game> GetAll();
+    Result<bool> CancelGame(string gameId, string player);
     IReadOnlyCollection<Game> GetWaitingForOpponent();
+    IReadOnlyCollection<Game> GetAll();
+    IReadOnlyCollection<Game> GetAllNonFinished();
+
 }

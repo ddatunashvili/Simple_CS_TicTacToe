@@ -30,4 +30,16 @@ public sealed class GameController : Controller
 
         return View(vm);
     }
+    [HttpPost]
+    public IActionResult Cancel(string gameId)
+    {
+        var player = User.Identity?.Name ?? HttpContext.Session.Id;
+
+        var result = _games.CancelGame(gameId, player);
+
+        if (!result.IsSuccess)
+            return BadRequest(result.Error);
+
+        return Ok(result.Value);
+    }
 }

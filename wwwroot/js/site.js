@@ -109,11 +109,11 @@
         },
 
         on: function (eventName, handler) {
-            // Store for re-registration after reset
+            this.eventHandlers = this.eventHandlers.filter(h => h.event !== eventName);
             this.eventHandlers.push({ event: eventName, handler: handler });
 
-            // Register immediately if connection exists
             if (this.connection) {
+                this.connection.off(eventName);
                 this.connection.on(eventName, handler);
             }
         },
@@ -180,6 +180,8 @@
                 // Reset connection so new displayName is sent via query string
                 await Hub.reset();
 
+                await Hub.invoke('GetLobby');
+
                 if (onNameSet) {
                     await onNameSet();
                 }
@@ -208,7 +210,7 @@
 
             UI.setDisabled('createGameBtn', !hasName);
 
-            document.querySelectorAll('.js-join-game').forEach(function (btn) {yy
+            document.querySelectorAll('.js-join-game').forEach(function (btn) {
                 btn.disabled = !hasName;
             });
         }
@@ -219,10 +221,13 @@
     // =========================================================================
     var LobbyModule = {
         renderWaitingGames: function (games) {
+            this.gamesCache = games || [];
+
             var container = document.getElementById('waitingGamesList');
             if (!container) return;
 
-            var hasName = !!Storage.getDisplayName();
+            var displayName = Storage.getDisplayName();
+            var hasName = !!displayName;
 
             if (!games || games.length === 0) {
                 container.innerHTML = '<p class="text-muted">No games available.</p>';
@@ -230,42 +235,95 @@
             }
 
             var html = '<div class="list-group">';
+
             games.forEach(function (g) {
-                html += '<div class="list-group-item d-flex justify-content-between align-items-center">'
-                    + '<div>'
-                    + '<div class="fw-semibold"></div>'
-                    + '<small class="text-muted"></small>'
-                    + '</div>'
-                    + '<div>'
-                    + '<button type="button" class="btn btn-sm btn-outline-primary js-join-game" '
-                    + 'data-game-id="" ' + (hasName ? '' : 'disabled') + '>Join</button>'
-                    + '</div>'
-                    + '</div>';
+                var isHost = g.hostPlayer === displayName;
+                var isGuest = g.guestPlayer === displayName;
+                var isPlayerInGame = isHost || isGuest;
+                var isFull = !!g.guestPlayer;
+
+                html += `
+        <div class="list-group-item d-flex justify-content-between align-items-center">
+            <div>
+                <div class="fw-semibold">${g.friendlyName}</div>
+                <small class="text-muted">Id: ${g.gameId}</small>
+            </div>
+            <div>
+ ${isPlayerInGame ? `
+    <button type="button"
+        class="btn btn-sm btn-outline-secondary ms-2 js-resume-game"
+        data-game-id="${g.gameId}">
+        Resume
+    </button>
+` : (isFull ? `
+    <button type="button"
+        class="btn btn-sm btn-outline-secondary ms-2" disabled>
+        In Progress
+    </button>
+` : `
+    <button type="button"
+        class="btn btn-sm btn-outline-primary js-join-game"
+        data-game-id="${g.gameId}"
+        ${hasName ? '' : 'disabled'}>
+        Join
+    </button>
+`)}
+
+                ${(isPlayerInGame) ? `
+                    <button type="button"
+                        class="btn btn-sm btn-outline-danger ms-2 js-cancel-game"
+                        data-game-id="${g.gameId}">
+                        Cancel
+                    </button>
+                ` : ''}
+
+            </div>
+        </div>
+        `;
             });
+
             html += '</div>';
-
             container.innerHTML = html;
+        },
 
-            // Fill in text content safely
-            var items = container.querySelectorAll('.list-group-item');
-            items.forEach(function (item, idx) {
-                var g = games[idx];
-                item.querySelector('.fw-semibold').textContent = g.friendlyName;
-                item.querySelector('small').textContent = 'Id: ' + g.gameId;
-                item.querySelector('button').setAttribute('data-game-id', g.gameId);
-            });
+        handleCancelGame: async function (e) {
+            var target = e.target.closest('.js-cancel-game');
+            if (!target) return;
+
+            var gameId = target.getAttribute('data-game-id');
+            if (!gameId) return;
+
+            var displayName = Storage.getDisplayName();
+            if (!displayName) return;
+
+            if (!confirm('Cancel this game?')) return;
+
+            try {
+                console.log("Cancel game", gameId, displayName);
+
+                // ⚠️ IMPORTANT FIX:
+                // CancelGame expects ONLY gameId.
+                // Remove displayName argument.
+                await Hub.invoke('CancelGame', gameId);
+
+                await Hub.invoke('GetLobby');
+            } catch (err) {
+                alert('Failed to cancel game: ' + (err && err.message ? err.message : 'Unknown error'));
+            }
         },
 
         init: async function () {
+
             var container = document.getElementById('waitingGamesList');
             var createForm = document.getElementById('createGameForm');
 
             if (!container && !createForm) return;
 
             // Register event handlers BEFORE ensuring connection
-            // This way they will be re-registered if connection is reset
             Hub.on('LobbyUpdated', function (payload) {
-                LobbyModule.renderWaitingGames(payload.waitingGames);
+                const games = payload.waitingGames || payload.games || [];
+                LobbyModule.renderWaitingGames(games);
+
                 DisplayNameModule.refreshUI();
             });
 
@@ -288,12 +346,34 @@
                     createForm.addEventListener('submit', this.handleCreateGame.bind(this));
                 }
 
-                // Join game buttons (event delegation)
+                // resume game button
+                document.addEventListener('click', this.handleResumeGame.bind(this));
+
+                // cancel game button (event)
+                document.addEventListener('click', this.handleCancelGame.bind(this));
+
+                // Join game button(event delegation)
                 document.addEventListener('click', this.handleJoinGame.bind(this));
 
             } catch {
                 // ignore connection errors
             }
+
+            setTimeout(async () => {
+                try {
+                    await Hub.invoke('GetLobby');
+                } catch { }
+            }, 0);
+        },
+
+        handleResumeGame: function (e) {
+            var target = e.target;
+            if (!target.classList.contains('js-resume-game')) return;
+
+            var gameId = target.getAttribute('data-game-id');
+            if (!gameId) return;
+
+            window.location.href = '/Game/' + gameId;
         },
 
         handleCreateGame: async function (e) {
@@ -311,6 +391,7 @@
             try {
                 UI.setDisabled('createGameBtn', true);
                 await Hub.invoke('CreateGame', gameName);
+                await Hub.invoke('GetLobby');
             } catch (err) {
                 UI.showError('createGameError', err && err.message ? err.message : 'Failed to create game.');
             } finally {
@@ -326,9 +407,23 @@
             if (!gameId) return;
 
             try {
+                var displayName = Storage.getDisplayName();
+                var game = this.gamesCache.find(g => g.gameId === gameId);
+
+                if (game && game.hostPlayer === displayName) {
+                    // Host rejoining own game
+                    window.location.href = '/Game/' + gameId;
+                    return;
+                }
+                if (game && game.guestPlayer) {
+                    alert("Game already has two players.");
+                    return;
+                }
+
                 await Hub.invoke('JoinGame', gameId);
+                await Hub.invoke('GetLobby');
             } catch (err) {
-                var errorEl = document.getElementById('joinGameSuccess');
+                var errorEl = document.getElementById('joinGameError');
                 if (errorEl) {
                     errorEl.textContent = err && err.message ? err.message : 'Failed to join game.';
                     errorEl.hidden = false;
@@ -389,7 +484,7 @@
                 this.cellButtons.forEach(function (btn) {
                     btn.addEventListener('click', this.handleCellClick.bind(this));
                 }, this);
-
+                await Hub.invoke('GetLobby');
             } catch (err) {
                 UI.setAlertText('gameStatus', err && err.message ? err.message : 'Failed to connect to game.');
             }
@@ -459,41 +554,40 @@
             });
         },
 
+        updateStatusText: function () {
+            var state = this.state;
+            var statusEl = document.getElementById('gameStatus');
 
-updateStatusText: function () {
-    var state = this.state;
-    var statusEl = document.getElementById('gameStatus');
-
-    // Reset classes
-    if (statusEl) {
-        statusEl.classList.remove('alert-info', 'alert-success', 'alert-danger');
-    }
-
-    if (state.status === 'WaitingForOpponent') {
-        UI.setAlertText('gameStatus', 'Waiting for opponent...');
-        if (statusEl) statusEl.classList.add('alert-info');
-        return;
-    }
-
-    if (state.status === 'Finished') {
-        let message = '';
-        if (state.winnerPlayerId) {
-            if (state.winnerPlayerId === state.playerId) {
-                message = 'You won!';
-                if (statusEl) statusEl.classList.add('alert-success');
-            } else {
-                message = 'You lost.';
-                if (statusEl) statusEl.classList.add('alert-danger');
+            // Reset classes
+            if (statusEl) {
+                statusEl.classList.remove('alert-info', 'alert-success', 'alert-danger');
             }
-        } else {
-            message = 'Draw.';
-            if (statusEl) statusEl.classList.add('alert-info');
-        }
 
-        UI.setAlertText('gameStatus', message);
+            if (state.status === 'WaitingForOpponent') {
+                UI.setAlertText('gameStatus', 'Waiting for opponent...');
+                if (statusEl) statusEl.classList.add('alert-info');
+                return;
+            }
 
-        // === SHOW MODAL POPUP ===
-        let modalHtml = `
+            if (state.status === 'Finished') {
+                let message = '';
+                if (state.winnerPlayerId) {
+                    if (state.winnerPlayerId === state.playerId) {
+                        message = 'You won!';
+                        if (statusEl) statusEl.classList.add('alert-success');
+                    } else {
+                        message = 'You lost.';
+                        if (statusEl) statusEl.classList.add('alert-danger');
+                    }
+                } else {
+                    message = 'Draw.';
+                    if (statusEl) statusEl.classList.add('alert-info');
+                }
+
+                UI.setAlertText('gameStatus', message);
+
+                // === SHOW MODAL POPUP ===
+                let modalHtml = `
             <div class="modal fade" id="gameResultModal" tabindex="-1" aria-hidden="true">
                 <div class="modal-dialog modal-dialog-centered">
                     <div class="modal-content">
@@ -507,39 +601,42 @@ updateStatusText: function () {
                 </div>
             </div>
         `;
-        // Append modal to body if not exists
-        if (!document.getElementById('gameResultModal')) {
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
-        }
+                // Append modal to body if not exists
+                if (!document.getElementById('gameResultModal')) {
+                    document.body.insertAdjacentHTML('beforeend', modalHtml);
+                }
 
-        var resultModalEl = document.getElementById('gameResultModal');
-        var bootstrapModal = new bootstrap.Modal(resultModalEl, { backdrop: 'static', keyboard: false });
-        bootstrapModal.show();
+                var resultModalEl = document.getElementById('gameResultModal');
+                var bootstrapModal = new bootstrap.Modal(resultModalEl, { backdrop: 'static', keyboard: false });
+                bootstrapModal.show();
 
-        // Countdown
-        let countdownEl = document.getElementById('countdown');
-        let countdown = 10;
-        this.countdownInterval = setInterval(() => {
-            countdown--;
-            if (countdownEl) countdownEl.textContent = countdown;
-            if (countdown <= 0) {
-                clearInterval(this.countdownInterval);
-                this.countdownInterval = null;
-                bootstrapModal.hide();
-                window.location.href = '/Home/Index';
+                // Countdown
+                let countdownEl = document.getElementById('countdown');
+                let countdown = 10;
+                window.addEventListener('beforeunload', () => {
+                    if (this.countdownInterval) clearInterval(this.countdownInterval);
+                });
+                this.countdownInterval = setInterval(() => {
+                    countdown--;
+                    if (countdownEl) countdownEl.textContent = countdown;
+                    if (countdown <= 0) {
+                        clearInterval(this.countdownInterval);
+                        this.countdownInterval = null;
+                        bootstrapModal.hide();
+                        window.location.href = '/Home/Index';
+                    }
+                }, 1000);
+
+                return;
             }
-        }, 1000);
 
-        return;
-    }
-
-    if (state.nextTurnPlayerId === state.playerId) {
-        UI.setAlertText('gameStatus', 'Your turn.');
-    } else {
-        UI.setAlertText('gameStatus', "Opponent's turn.");
-    }
-    if (statusEl) statusEl.classList.add('alert-info');
-}
+            if (state.nextTurnPlayerId === state.playerId) {
+                UI.setAlertText('gameStatus', 'Your turn.');
+            } else {
+                UI.setAlertText('gameStatus', "Opponent's turn.");
+            }
+            if (statusEl) statusEl.classList.add('alert-info');
+        }
 
     };
 
@@ -554,7 +651,7 @@ updateStatusText: function () {
             try {
                 await Hub.invoke('GetLobby');
             } catch {
-                // ignore
+
             }
         });
 

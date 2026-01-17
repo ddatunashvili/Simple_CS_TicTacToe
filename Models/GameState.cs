@@ -4,7 +4,9 @@ public enum GameStatus
 {
     WaitingForOpponent = 0,
     InProgress = 1,
-    Finished = 2
+    Finished = 2,
+    Cancelled = 3
+
 }
 
 public enum Cell

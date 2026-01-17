@@ -36,6 +36,44 @@ public sealed class Games : IGames
         return game;
     }
 
+    public Result<bool> CancelGame(string gameId, string player)
+    {
+        if (string.IsNullOrWhiteSpace(gameId))
+            return "Game id is required.";
+
+        if (string.IsNullOrWhiteSpace(player))
+            return "Player is required.";
+
+        lock (_lock)
+        {
+            if (!_gamesById.TryGetValue(gameId, out var game))
+                return "Game not found.";
+
+            if (game.HostPlayer != player && game.GuestPlayer != player)
+                return "Only players can cancel the game.";
+
+            // Fix: mark as Finished so it does not stay in lobby
+            var updated = game with
+            {
+                State = game.State with { Status = GameStatus.Finished }
+            };
+
+            _gamesById[gameId] = updated;
+            return true;
+        }
+    }
+
+    public Result<Game> GetGame(string gameId)
+    {
+        if (string.IsNullOrWhiteSpace(gameId))
+            return "Game id is required.";
+
+        if (!_gamesById.TryGetValue(gameId, out var game))
+            return "Game not found.";
+
+        return game;
+    }
+
     public Result<Game> JoinGame(string gameId, string guestPlayer)
     {
         if (string.IsNullOrWhiteSpace(gameId))
@@ -53,7 +91,7 @@ public sealed class Games : IGames
                 return "Game already has two players.";
 
             if (game.HostPlayer == guestPlayer)
-                return "Cannot join your own game.";
+                return game;
 
             var updated = game with
             {
@@ -64,17 +102,6 @@ public sealed class Games : IGames
             _gamesById[gameId] = updated;
             return updated;
         }
-    }
-
-    public Result<Game> GetGame(string gameId)
-    {
-        if (string.IsNullOrWhiteSpace(gameId))
-            return "Game id is required.";
-
-        if (!_gamesById.TryGetValue(gameId, out var game))
-            return "Game not found.";
-
-        return game;
     }
 
     public Result<Game> MakeMove(string gameId, string player, int cellIndex)
@@ -111,20 +138,17 @@ public sealed class Games : IGames
             if (game.State.Board[cellIndex] != Cell.Empty)
                 return "Cell already taken.";
 
-            // Define all winning combinations
             int[][] winningCombos =
             [
-                [0,1,2], [3,4,5], [6,7,8], // rows
-                [0,3,6], [1,4,7], [2,5,8], // columns
-                [0,4,8], [2,4,6]                 // diagonals
+                [0,1,2], [3,4,5], [6,7,8],
+                [0,3,6], [1,4,7], [2,5,8],
+                [0,4,8], [2,4,6]
             ];
 
-            // Make the move
             var board = (Cell[])game.State.Board.Clone();
             var mark = isHost ? Cell.X : Cell.O;
             board[cellIndex] = mark;
 
-            // Check if current player won
             string? winner = null;
             foreach (var combo in winningCombos)
             {
@@ -137,7 +161,6 @@ public sealed class Games : IGames
                 }
             }
 
-            // Determine new game state
             GameStatus status;
             string? nextTurn;
 
@@ -148,7 +171,6 @@ public sealed class Games : IGames
             }
             else if (board.All(c => c != Cell.Empty))
             {
-                // Draw
                 status = GameStatus.Finished;
                 nextTurn = null;
             }
@@ -158,7 +180,6 @@ public sealed class Games : IGames
                 nextTurn = isHost ? game.GuestPlayer : game.HostPlayer;
             }
 
-            // Update game object
             var updated = game with
             {
                 State = new GameState(
@@ -173,12 +194,26 @@ public sealed class Games : IGames
         }
     }
 
-    public IReadOnlyCollection<Game> GetAll() => _gamesById.Values.ToArray();
+    public IReadOnlyCollection<Game> GetAllNonFinished()
+    {
+        lock (_lock)
+        {
+            return _gamesById.Values
+                .Where(g => g.State.Status != GameStatus.Finished)
+                .ToArray();
+        }
+    }
 
-    public IReadOnlyCollection<Game> GetWaitingForOpponent() =>
-        _gamesById.Values
-            .Where(g => g.State.Status == GameStatus.WaitingForOpponent)
-            .OrderBy(g => g.FriendlyName)
-            .ToArray();
+    public IReadOnlyCollection<Game> GetWaitingForOpponent()
+    {
+        lock (_lock)
+        {
+            return _gamesById.Values
+                .Where(g => g.State.Status == GameStatus.WaitingForOpponent)
+                .ToArray();
+        }
+    }
 
+    public IReadOnlyCollection<Game> GetAll()
+        => _gamesById.Values.ToArray();
 }

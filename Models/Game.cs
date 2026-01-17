@@ -6,3 +6,5 @@ public sealed record Game(
     string HostPlayer,
     string? GuestPlayer,
     GameState State);
+
+
